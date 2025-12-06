@@ -109,7 +109,13 @@ fi
 
 # Backup cấu hình gốc
 echo -e "${YELLOW}[3/6] Backup cấu hình gốc...${NC}"
-cp /etc/squid/squid.conf /etc/squid/squid.conf.backup.$(date +%Y%m%d_%H%M%S)
+if [ -f /etc/squid/squid.conf ]; then
+    backup_file="/etc/squid/squid.conf.backup.$(date +%Y%m%d_%H%M%S)"
+    cp /etc/squid/squid.conf "$backup_file"
+    echo -e "${GREEN}Đã backup cấu hình cũ tại: $backup_file${NC}"
+else
+    echo -e "${YELLOW}Không tìm thấy file cấu hình cũ (cài đặt lần đầu)${NC}"
+fi
 
 # Tạo cấu hình Squid
 echo -e "${YELLOW}[4/6] Tạo cấu hình Squid...${NC}"
@@ -155,12 +161,24 @@ fi
 if [ "$need_auth" = "y" ] || [ "$need_auth" = "Y" ]; then
     echo -e "${YELLOW}[5/6] Cấu hình authentication...${NC}"
     
-    # Tạo file password
-    htpasswd -cb /etc/squid/passwords "$squid_user" "$squid_pass" 2>/dev/null || \
-    htpasswd -b /etc/squid/passwords "$squid_user" "$squid_pass"
+    # Backup file password cũ nếu có
+    if [ -f /etc/squid/passwords ]; then
+        cp /etc/squid/passwords /etc/squid/passwords.backup.$(date +%Y%m%d_%H%M%S)
+        echo -e "${GREEN}Đã backup file password cũ${NC}"
+        # Thêm user mới (không xóa user cũ) - dùng -b để non-interactive
+        htpasswd -b /etc/squid/passwords "$squid_user" "$squid_pass" 2>/dev/null
+    else
+        # Tạo file password mới - dùng -cb để tạo file mới
+        htpasswd -cb /etc/squid/passwords "$squid_user" "$squid_pass" 2>/dev/null
+    fi
+    
+    # Nếu htpasswd không có, dùng openssl
+    if [ ! -s /etc/squid/passwords ]; then
+        echo "$squid_user:$(openssl passwd -apr1 "$squid_pass" 2>/dev/null)" > /etc/squid/passwords
+    fi
     
     chmod 640 /etc/squid/passwords
-    chown root:proxy /etc/squid/passwords
+    chown root:proxy /etc/squid/passwords 2>/dev/null || chown root:root /etc/squid/passwords
     
     # Thêm cấu hình auth vào squid.conf
     cat >> /etc/squid/squid.conf << EOF
@@ -241,4 +259,3 @@ else
     echo -e "${RED}Lỗi: Squid không khởi động được. Kiểm tra log: journalctl -u squid${NC}"
     exit 1
 fi
-
